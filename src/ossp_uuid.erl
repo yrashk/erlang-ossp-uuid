@@ -16,12 +16,30 @@ init() ->
             Err
     end.
 
+%% ----------------------------------
+%% @doc 
+%% Generate UUID
+%% @spec make(Version::(v1|v4), Format::text|binary) -> binary()
+%% @end
+%% ----------------------------------
 make(_Mode, _Format) ->
     erlang:nif_error(not_loaded).
 
+%% ----------------------------------
+%% @doc 
+%% Generate UUID
+%% @spec make(Version::(v3|v5), Format::text|binary, NS::string(), Name::string()) -> binary()
+%% @end
+%% ----------------------------------
 make(_Mode, _Format, _NS, _Name) ->
     erlang:nif_error(not_loaded).
 
+%% ----------------------------------
+%% @doc 
+%% Import UUID
+%% @spec import(UUID::iolist(), Format::text|binary) -> binary()
+%% @end
+%% ----------------------------------
 import(_IOList, _Format) ->
     erlang:nif_error(not_loaded).
 
