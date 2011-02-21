@@ -1,0 +1,5 @@
+deps/uuid-1.6.2
+priv
+c_src/*.o
+ebin
+.eunit
