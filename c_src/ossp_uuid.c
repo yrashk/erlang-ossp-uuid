@@ -17,29 +17,34 @@ static ErlNifFunc nif_funcs[] =
 
 int make_uuid_ns(uuid_t * uuid, unsigned int mode, ErlNifEnv *env, const ERL_NIF_TERM argv[]) {
   unsigned int length;
-  char * ns;
-  char * name;
+  char * ns = NULL;
+  char * name = NULL;
   uuid_t *uuid_ns;
+  int ret = 0;
 
   if (!enif_get_list_length(env, argv[2], &length)) {
     return 0;
   }
   
-  ns = (char *) malloc(length + 1);
+  ns = malloc(length + 1);
+  if (ns == NULL) {
+    goto ERR;
+  }
   
-  if (!enif_get_string(env, argv[2], ns, length, ERL_NIF_LATIN1)) {
-    free(ns);
-    return 0;
+  if (enif_get_string(env, argv[2], ns, length+1, ERL_NIF_LATIN1) < 1) {
+    goto ERR;
   }
   
   if (!enif_get_list_length(env, argv[3], &length)) {
-    free(ns); 
-    return 0;
+    goto ERR;
   }
 
-  name = (char *) malloc(length + 1);
+  name = malloc(length + 1);
+  if (name == NULL) {
+    goto ERR;
+  }
   
-  if (!enif_get_string(env, argv[3], name, length, ERL_NIF_LATIN1)) {
+  if (enif_get_string(env, argv[3], name, length+1, ERL_NIF_LATIN1) < 1) {
     free(ns); free(name);
     return enif_make_badarg(env);
   }
@@ -51,28 +56,35 @@ int make_uuid_ns(uuid_t * uuid, unsigned int mode, ErlNifEnv *env, const ERL_NIF
 
   uuid_destroy(uuid_ns);
 
-  free(ns); free(name);
-  return 1;
+  ret = 1;
+
+ERR:
+  if (ns) {
+    free(ns);
+  }
+
+  if (name) {
+    free(name);
+  }
+
+  return ret;
 }
 
 
 NIF(ossp_uuid_nif_make)
 {
   uuid_t * uuid;
-  unsigned int length;
   char version[16];
   char format[16];
   ERL_NIF_TERM result;
 
-  if (!enif_get_atom_length(env, argv[0], &length, ERL_NIF_LATIN1)) {
+  if (!enif_get_atom(env, argv[0], version, sizeof(version), ERL_NIF_LATIN1)) {
     return enif_make_badarg(env);
   }
-  enif_get_atom(env, argv[0], (char *) &version, length + 1, ERL_NIF_LATIN1);
 
-  if (!enif_get_atom_length(env, argv[1], &length, ERL_NIF_LATIN1)) {
+  if (!enif_get_atom(env, argv[1], format, sizeof(version), ERL_NIF_LATIN1)) {
     return enif_make_badarg(env);
   }
-  enif_get_atom(env, argv[1], (char *) &format, length + 1, ERL_NIF_LATIN1);
 
   uuid_create(&uuid);
 
@@ -96,15 +108,21 @@ NIF(ossp_uuid_nif_make)
   ErlNifBinary result_binary;
 
   if (!strcmp(format, "binary")) {
-    int len = UUID_LEN_BIN;
-    enif_alloc_binary(UUID_LEN_BIN, &result_binary);
-    uuid_export(uuid, UUID_FMT_BIN, (void **)(&result_binary.data), (size_t *) &len);
+    size_t len = UUID_LEN_BIN;
+    if (!enif_alloc_binary(UUID_LEN_BIN, &result_binary)) {
+          return enif_make_badarg(env);
+    }
+    uuid_export(uuid, UUID_FMT_BIN, &result_binary.data, &len);
     result = enif_make_binary(env, &result_binary);
   } else if (!strcmp(format, "text")) {
-    int len = UUID_LEN_STR;
-    enif_alloc_binary(UUID_LEN_STR, &result_binary);
-    uuid_export(uuid, UUID_FMT_STR, (void **)(&result_binary.data), (size_t *) &len);
+    char *buf = NULL;
+    uuid_export(uuid, UUID_FMT_STR, &buf, NULL);
+    if (!enif_alloc_binary(strlen(buf), &result_binary)) {
+          return enif_make_badarg(env);
+    }
+    (void)memcpy(result_binary.data, buf, result_binary.size);
     result = enif_make_binary(env, &result_binary);
+    free(buf);
   } else {
     result = enif_make_badarg(env);
   }
@@ -120,17 +138,15 @@ NIF(ossp_uuid_nif_import)
   uuid_t * uuid;
   ErlNifBinary binary;
   ERL_NIF_TERM result;
-  unsigned int length;
   char format[16];
 
   if (!enif_inspect_iolist_as_binary(env, argv[0], &binary)) {
       return enif_make_badarg(env);
   }
 
-  if (!enif_get_atom_length(env, argv[1], &length, ERL_NIF_LATIN1)) {
+  if (!enif_get_atom(env, argv[1], (char *) &format, sizeof(format), ERL_NIF_LATIN1)) {
     return enif_make_badarg(env);
   }
-  enif_get_atom(env, argv[1], (char *) &format, length + 1, ERL_NIF_LATIN1);
 
   uuid_create(&uuid);
 
@@ -138,21 +154,29 @@ NIF(ossp_uuid_nif_import)
     uuid_import(uuid, UUID_FMT_BIN, (void *)binary.data, binary.size);
   } else if (binary.size == UUID_LEN_STR) {
     uuid_import(uuid, UUID_FMT_STR, (void *)binary.data, binary.size);
+  } else {
+    return enif_make_badarg(env);
   }
 
 
   ErlNifBinary result_binary;
 
   if (!strcmp(format, "binary")) {
-    int len = UUID_LEN_BIN;
-    enif_alloc_binary(UUID_LEN_BIN, &result_binary);
-    uuid_export(uuid, UUID_FMT_BIN, (void **)(&result_binary.data), (size_t *) &len);
+    size_t len = UUID_LEN_BIN;
+    if (!enif_alloc_binary(UUID_LEN_BIN, &result_binary)) {
+          return enif_make_badarg(env);
+    }
+    uuid_export(uuid, UUID_FMT_BIN, &result_binary.data, &len);
     result = enif_make_binary(env, &result_binary);
   } else if (!strcmp(format, "text")) {
-    int len = UUID_LEN_STR;
-    enif_alloc_binary(UUID_LEN_STR, &result_binary);
-    uuid_export(uuid, UUID_FMT_STR, (void **)(&result_binary.data), (size_t *) &len);
+    char *buf = NULL;
+    uuid_export(uuid, UUID_FMT_STR, &buf, NULL);
+    if (!enif_alloc_binary(strlen(buf), &result_binary)) {
+          return enif_make_badarg(env);
+    }
+    (void)memcpy(result_binary.data, buf, result_binary.size);
     result = enif_make_binary(env, &result_binary);
+    free(buf);
   } else {
     result = enif_make_badarg(env);
   }
