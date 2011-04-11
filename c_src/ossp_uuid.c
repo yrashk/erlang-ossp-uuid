@@ -8,6 +8,9 @@
 NIF(ossp_uuid_nif_make);
 NIF(ossp_uuid_nif_import);
 
+int ossp_uuid_mode(char *version, unsigned int *mode);
+int ossp_uuid_fmt(char *format, uuid_fmt_t *fmt, size_t *len);
+
 static ErlNifFunc nif_funcs[] =
 {
     {"make", 2, ossp_uuid_nif_make},
@@ -70,13 +73,49 @@ ERR:
   return ret;
 }
 
+int ossp_uuid_mode(char *version, unsigned int *mode)
+{
+  if (!strcmp(version,"v1")) {
+     *mode = UUID_MAKE_V1;
+  } else if (!strcmp(version,"v3")) {
+     *mode = UUID_MAKE_V3;
+  } else if (!strcmp(version,"v4")) {
+     *mode = UUID_MAKE_V4;
+  } else if (!strcmp(version,"v5")) {
+     *mode = UUID_MAKE_V5;
+  } else {
+     return 0;
+  }
+
+  return 1;
+}
+
+int ossp_uuid_fmt(char *format, uuid_fmt_t *fmt, size_t *len)
+{
+  if (!strcmp(format, "binary")) {
+    *fmt = UUID_FMT_BIN;
+    *len = UUID_LEN_BIN;
+  } else if (!strcmp(format, "text")) {
+    *fmt = UUID_FMT_STR;
+    *len = 0;
+  } else {
+    return 0;
+  }
+
+  return 1;
+}
 
 NIF(ossp_uuid_nif_make)
 {
-  uuid_t * uuid;
+  uuid_t * uuid = NULL;
   char version[16];
   char format[16];
-  ERL_NIF_TERM result;
+  ERL_NIF_TERM result = {0};
+  ErlNifBinary result_binary = {0};
+  uuid_fmt_t fmt = UUID_FMT_BIN;
+  unsigned int mode = 0;
+  char *buf = NULL;
+  size_t len = 0;
 
   if (!enif_get_atom(env, argv[0], version, sizeof(version), ERL_NIF_LATIN1)) {
     return enif_make_badarg(env);
@@ -86,45 +125,42 @@ NIF(ossp_uuid_nif_make)
     return enif_make_badarg(env);
   }
 
-  uuid_create(&uuid);
-
-  if (!strcmp(version,"v1")) {
-    uuid_make(uuid, UUID_MAKE_V1);
-  } else if (!strcmp(version,"v3")) {
-    if (!make_uuid_ns(uuid, UUID_MAKE_V3, env, argv)) {
-          return enif_make_badarg(env);
-    }
-  } else if (!strcmp(version,"v4")) {
-    uuid_make(uuid, UUID_MAKE_V4);
-  } else if (!strcmp(version,"v5")) {
-    if (!make_uuid_ns(uuid, UUID_MAKE_V5, env, argv)) {
-          return enif_make_badarg(env);
-    }  
-  } else {
+  if (!ossp_uuid_mode(version, &mode)) {
     return enif_make_badarg(env);
   }
 
-  
-  ErlNifBinary result_binary;
+  if (!ossp_uuid_fmt(format, &fmt, &len)) {
+    return enif_make_badarg(env);
+  }
 
-  if (!strcmp(format, "binary")) {
-    size_t len = UUID_LEN_BIN;
-    if (!enif_alloc_binary(UUID_LEN_BIN, &result_binary)) {
+  uuid_create(&uuid);
+
+  switch (mode) {
+    case UUID_MAKE_V1:
+    case UUID_MAKE_V4:
+          uuid_make(uuid, mode);
+          break;
+    case UUID_MAKE_V3:
+    case UUID_MAKE_V5:
+          if (!make_uuid_ns(uuid, mode, env, argv)) {
           return enif_make_badarg(env);
-    }
-    uuid_export(uuid, UUID_FMT_BIN, &result_binary.data, &len);
-    result = enif_make_binary(env, &result_binary);
-  } else if (!strcmp(format, "text")) {
-    char *buf = NULL;
-    uuid_export(uuid, UUID_FMT_STR, &buf, NULL);
-    if (!enif_alloc_binary(strlen(buf), &result_binary)) {
-          return enif_make_badarg(env);
-    }
-    (void)memcpy(result_binary.data, buf, result_binary.size);
-    result = enif_make_binary(env, &result_binary);
-    free(buf);
-  } else {
+          };
+          break;
+  }
+
+  uuid_export(uuid, fmt, &buf, NULL);
+
+  if (!enif_alloc_binary( (len > 0 ? len : strlen(buf)),
+              &result_binary)) {
     result = enif_make_badarg(env);
+    goto ERR;
+  }
+  (void)memcpy(result_binary.data, buf, result_binary.size);
+  result = enif_make_binary(env, &result_binary);
+
+ERR:
+  if (buf) {
+    free(buf);
   }
 
   uuid_destroy(uuid);
@@ -135,50 +171,51 @@ NIF(ossp_uuid_nif_make)
 
 NIF(ossp_uuid_nif_import)
 {
-  uuid_t * uuid;
-  ErlNifBinary binary;
-  ERL_NIF_TERM result;
+  uuid_t * uuid = NULL;
+  ErlNifBinary binary = {0};
+  ERL_NIF_TERM result = {0};
   char format[16];
+  uuid_fmt_t fmt = UUID_FMT_BIN;
+  ErlNifBinary result_binary = {0};
+  char *buf = NULL;
+  size_t len = 0;
 
   if (!enif_inspect_iolist_as_binary(env, argv[0], &binary)) {
       return enif_make_badarg(env);
   }
 
-  if (!enif_get_atom(env, argv[1], (char *) &format, sizeof(format), ERL_NIF_LATIN1)) {
+  if (!enif_get_atom(env, argv[1], format, sizeof(format), ERL_NIF_LATIN1)) {
+    return enif_make_badarg(env);
+  }
+
+  if (!ossp_uuid_fmt(format, &fmt, &len)) {
     return enif_make_badarg(env);
   }
 
   uuid_create(&uuid);
 
   if (binary.size == UUID_LEN_BIN) {
-    uuid_import(uuid, UUID_FMT_BIN, (void *)binary.data, binary.size);
+    uuid_import(uuid, UUID_FMT_BIN, binary.data, binary.size);
   } else if (binary.size == UUID_LEN_STR) {
-    uuid_import(uuid, UUID_FMT_STR, (void *)binary.data, binary.size);
-  } else {
-    return enif_make_badarg(env);
-  }
-
-
-  ErlNifBinary result_binary;
-
-  if (!strcmp(format, "binary")) {
-    size_t len = UUID_LEN_BIN;
-    if (!enif_alloc_binary(UUID_LEN_BIN, &result_binary)) {
-          return enif_make_badarg(env);
-    }
-    uuid_export(uuid, UUID_FMT_BIN, &result_binary.data, &len);
-    result = enif_make_binary(env, &result_binary);
-  } else if (!strcmp(format, "text")) {
-    char *buf = NULL;
-    uuid_export(uuid, UUID_FMT_STR, &buf, NULL);
-    if (!enif_alloc_binary(strlen(buf), &result_binary)) {
-          return enif_make_badarg(env);
-    }
-    (void)memcpy(result_binary.data, buf, result_binary.size);
-    result = enif_make_binary(env, &result_binary);
-    free(buf);
+    uuid_import(uuid, UUID_FMT_STR, binary.data, binary.size);
   } else {
     result = enif_make_badarg(env);
+    goto ERR;
+  }
+
+  uuid_export(uuid, fmt, &buf, NULL);
+
+  if (!enif_alloc_binary( (len > 0 ? len : strlen(buf)),
+              &result_binary)) {
+    result = enif_make_badarg(env);
+    goto ERR;
+  }
+  (void)memcpy(result_binary.data, buf, result_binary.size);
+  result = enif_make_binary(env, &result_binary);
+
+ERR:
+  if (buf) {
+    free(buf);
   }
 
   uuid_destroy(uuid);
