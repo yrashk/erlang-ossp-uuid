@@ -22,7 +22,7 @@ int make_uuid_ns(uuid_t * uuid, unsigned int mode, ErlNifEnv *env, const ERL_NIF
   unsigned int length;
   char * ns = NULL;
   char * name = NULL;
-  uuid_t *uuid_ns;
+  uuid_t *uuid_ns = NULL;
   int ret = 0;
 
   if (!enif_get_list_length(env, argv[2], &length)) {
@@ -52,16 +52,24 @@ int make_uuid_ns(uuid_t * uuid, unsigned int mode, ErlNifEnv *env, const ERL_NIF
     return enif_make_badarg(env);
   }
 
-  uuid_create(&uuid_ns);
-  uuid_load(uuid_ns, ns);
+  if (uuid_create(&uuid_ns) != UUID_RC_OK) {
+    goto ERR;
+  }
+  if (uuid_load(uuid_ns, ns) != UUID_RC_OK) {
+    goto ERR;
+  }
 
-  uuid_make(uuid, mode, uuid_ns, name);
-
-  uuid_destroy(uuid_ns);
+  if (uuid_make(uuid, mode, uuid_ns, name) != UUID_RC_OK) {
+    goto ERR;
+  }
 
   ret = 1;
 
 ERR:
+  if (uuid_ns) {
+    (void)uuid_destroy(uuid_ns);
+  }
+
   if (ns) {
     free(ns);
   }
@@ -110,12 +118,13 @@ NIF(ossp_uuid_nif_make)
   uuid_t * uuid = NULL;
   char version[16];
   char format[16];
-  ERL_NIF_TERM result = {0};
   ErlNifBinary result_binary = {0};
   uuid_fmt_t fmt = UUID_FMT_BIN;
   unsigned int mode = 0;
   char *buf = NULL;
   size_t len = 0;
+
+  ERL_NIF_TERM result = enif_make_badarg(env);
 
   if (!enif_get_atom(env, argv[0], version, sizeof(version), ERL_NIF_LATIN1)) {
     return enif_make_badarg(env);
@@ -133,26 +142,31 @@ NIF(ossp_uuid_nif_make)
     return enif_make_badarg(env);
   }
 
-  uuid_create(&uuid);
+  if (uuid_create(&uuid) != UUID_RC_OK) {
+    goto ERR;
+  }
 
   switch (mode) {
     case UUID_MAKE_V1:
     case UUID_MAKE_V4:
-          uuid_make(uuid, mode);
+          if (uuid_make(uuid, mode) != UUID_RC_OK) {
+          goto ERR;
+          }
           break;
     case UUID_MAKE_V3:
     case UUID_MAKE_V5:
           if (!make_uuid_ns(uuid, mode, env, argv)) {
-          return enif_make_badarg(env);
+          goto ERR;
           };
           break;
   }
 
-  uuid_export(uuid, fmt, &buf, NULL);
+  if (uuid_export(uuid, fmt, &buf, NULL) != UUID_RC_OK) {
+    goto ERR;
+  }
 
   if (!enif_alloc_binary( (len > 0 ? len : strlen(buf)),
               &result_binary)) {
-    result = enif_make_badarg(env);
     goto ERR;
   }
   (void)memcpy(result_binary.data, buf, result_binary.size);
@@ -163,7 +177,9 @@ ERR:
     free(buf);
   }
 
-  uuid_destroy(uuid);
+  if (uuid) {
+    (void)uuid_destroy(uuid);
+  }
   
   return result;
 }
@@ -173,12 +189,13 @@ NIF(ossp_uuid_nif_import)
 {
   uuid_t * uuid = NULL;
   ErlNifBinary binary = {0};
-  ERL_NIF_TERM result = {0};
   char format[16];
   uuid_fmt_t fmt = UUID_FMT_BIN;
   ErlNifBinary result_binary = {0};
   char *buf = NULL;
   size_t len = 0;
+
+  ERL_NIF_TERM result = enif_make_badarg(env);
 
   if (!enif_inspect_iolist_as_binary(env, argv[0], &binary)) {
       return enif_make_badarg(env);
@@ -192,22 +209,33 @@ NIF(ossp_uuid_nif_import)
     return enif_make_badarg(env);
   }
 
-  uuid_create(&uuid);
-
-  if (binary.size == UUID_LEN_BIN) {
-    uuid_import(uuid, UUID_FMT_BIN, binary.data, binary.size);
-  } else if (binary.size == UUID_LEN_STR) {
-    uuid_import(uuid, UUID_FMT_STR, binary.data, binary.size);
-  } else {
-    result = enif_make_badarg(env);
+  if (uuid_create(&uuid) != UUID_RC_OK) {
     goto ERR;
   }
 
-  uuid_export(uuid, fmt, &buf, NULL);
+  switch (binary.size) {
+      case UUID_LEN_BIN:
+        if (uuid_import(uuid, UUID_FMT_BIN,
+                    binary.data, binary.size) != UUID_RC_OK) {
+        goto ERR;
+        }
+        break;
+      case UUID_LEN_STR:
+        if (uuid_import(uuid, UUID_FMT_STR,
+                    binary.data, binary.size) != UUID_RC_OK) {
+        goto ERR;
+        }
+        break;
+      default:
+        goto ERR;
+  }
+
+  if (uuid_export(uuid, fmt, &buf, NULL) != UUID_RC_OK) {
+    goto ERR;
+  }
 
   if (!enif_alloc_binary( (len > 0 ? len : strlen(buf)),
               &result_binary)) {
-    result = enif_make_badarg(env);
     goto ERR;
   }
   (void)memcpy(result_binary.data, buf, result_binary.size);
@@ -218,7 +246,9 @@ ERR:
     free(buf);
   }
 
-  uuid_destroy(uuid);
+  if (uuid) {
+    (void)uuid_destroy(uuid);
+  }
   
   return result;
 }
