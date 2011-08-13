@@ -11,7 +11,7 @@
 init() ->
     case code:which(?MODULE) of
         Filename when is_list(Filename) ->
-            erlang:load_nif(filename:join([filename:dirname(Filename),"../priv/ossp_uuid_drv"]), []);
+            erlang:load_nif(filename:join([code:priv_dir(ossp_uuid), "ossp_uuid_drv"]), []);
         Err ->
             Err
     end.
