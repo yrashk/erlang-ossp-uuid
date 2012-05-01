@@ -1,7 +1,7 @@
 {application, ossp_uuid,
  [
   {description, "OSSP uuid binding"},
-  {vsn, "1"},
+  {vsn, "1.1"},
   {registered, []},
   {applications, [
                   kernel,
