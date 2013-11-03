@@ -13,4 +13,4 @@ if [ "$ERLWS" == 4 ]; then
    LDFLAGS=-m32
 fi
 
-[ -d deps/uuid-1.6.2 ] || (cd deps && tar xzvfp uuid-1.6.2.tar.gz && cd uuid-1.6.2 && CFLAGS=$CFLAGS LDFLAGS=$LDFLAGS ./configure -disable-debug --without-perl --without-php --without-pgsql && make)
+[ -d deps/uuid-1.6.2 ] || (cd deps && tar xzvf uuid-1.6.2.tar.gz && cd uuid-1.6.2 && CFLAGS=$CFLAGS LDFLAGS=$LDFLAGS ./configure -disable-debug --without-perl --without-php --without-pgsql && make)
