@@ -8,7 +8,7 @@ fi
 
 ERLWS=`erl -noshell -eval "io:format(\"~p\",[erlang:system_info(wordsize)])" -s erlang halt`
 
-if [ "$ERLWS" == 4 ]; then
+if [ "$ERLWS" = 4 ]; then
    CFLAGS=-m32
    LDFLAGS=-m32
 fi
